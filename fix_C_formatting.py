@@ -1,11 +1,13 @@
-import re, sys
+import re, sys, string
 
-if_re = re.compile(r"if (\(.*\)) \n\s*{", re.VERBOSE)				#need to modify this to allow for newlines in a big bunch of logical comparisons
-for_re = re.compile(r"for (\(.*\)) \s*\n\s*{", re.VERBOSE)
-do_re = re.compile(r"do \s*\n*\s*{", re.VERBOSE)
+if_re = re.compile(r"if\s*(\([^{]*\)) (\s*)(.*?\s*){", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
+for_re = re.compile(r"for (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE)
+do_re = re.compile(r"do \s*{", re.VERBOSE)
 switch_re = re.compile(r"switch (\(.*\))\s*\n*\s*{", re.VERBOSE)
-else_re	= re.compile(r"else \s*\n*\s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
+else_re	= re.compile(r"}\s* else \s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
 while_re = re.compile(r"while (\(.*\)) \s*\n\s*{", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
+
+
 
 
 
@@ -16,6 +18,12 @@ def fix_if(match):
 	str_list = ['if ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
+	
+	if any(c not in string.whitespace for c in match.group(3)):
+		str_list.append(match.group(2))
+		
+	str_list.append(match.group(3))
+	print(str_list)
 	return ''.join(str_list)
 
 #works
@@ -23,6 +31,12 @@ def fix_for(match):
 	str_list = ['for ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
+	
+	if any(c not in string.whitespace for c in match.group(3)):
+		str_list.append(match.group(2))
+		
+	str_list.append(match.group(3))
+	print(str_list)
 	return ''.join(str_list)
 
 #works
@@ -38,7 +52,7 @@ def fix_switch(match):
 
 #works
 def fix_else(match):
-	return 'else {'
+	return '} else {'
 
 #need to keep testing
 def fix_while(match):
