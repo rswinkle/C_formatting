@@ -1,10 +1,10 @@
 import re, sys, string
 
-if_re = re.compile(r"if\s*(\([^{]*\)) (\s*)(.*?\s*){", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
-for_re = re.compile(r"for (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE)
+if_re = re.compile(r"if\s*(\([^{]*\)) (\s*.*?)\s*{", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
+for_re = re.compile(r"for (\(.*\)) (\s*.*?)\s*{", re.VERBOSE)
 do_re = re.compile(r"do \s*{", re.VERBOSE)
-switch_re = re.compile(r"switch (\(.*\))\s*\n*\s*{", re.VERBOSE)
-else_re	= re.compile(r"}\s* else \s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
+switch_re = re.compile(r"switch (\(.*\)) (\s*.*?)\s*{", re.VERBOSE)
+else_re	= re.compile(r"}\s* else (\s*.*?)\s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
 while_re = re.compile(r"while (\(.*\)) \s*\n\s*{", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
@@ -19,10 +19,9 @@ def fix_if(match):
 	str_list.append(match.group(1))
 	str_list.append(' {')
 	
-	if any(c not in string.whitespace for c in match.group(3)):
+	if any(c not in string.whitespace for c in match.group(2)):
 		str_list.append(match.group(2))
-		
-	str_list.append(match.group(3))
+	
 	print(str_list)
 	return ''.join(str_list)
 
@@ -31,11 +30,10 @@ def fix_for(match):
 	str_list = ['for ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
-	
-	if any(c not in string.whitespace for c in match.group(3)):
+
+	if any(c not in string.whitespace for c in match.group(2)):
 		str_list.append(match.group(2))
-		
-	str_list.append(match.group(3))
+	
 	print(str_list)
 	return ''.join(str_list)
 
@@ -48,11 +46,20 @@ def fix_switch(match):
 	str_list = ['switch ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
+	
+	if any(c not in string.whitespace for c in match.group(2)):
+		str_list.append(match.group(2))
+	
 	return ''.join(str_list)
 
 #works
 def fix_else(match):
-	return '} else {'
+	str_list = ['} else {']
+	
+	if any(c not in string.whitespace for c in match.group(1)):
+		str_list.append(match.group(1))
+	
+	return ''.join(str_list)
 
 #need to keep testing
 def fix_while(match):
