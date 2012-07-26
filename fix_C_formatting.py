@@ -5,7 +5,7 @@ for_re = re.compile(r"for (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE)
 do_re = re.compile(r"do \s*{", re.VERBOSE)
 switch_re = re.compile(r"switch (\(.*\))\s*\n*\s*{", re.VERBOSE)
 else_re	= re.compile(r"}\s* else \s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
-while_re = re.compile(r"while (\(.*\)) \s*\n\s*{", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
+while_re = re.compile(r"while (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
 
@@ -59,6 +59,10 @@ def fix_while(match):
 	str_list = ['while ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
+	
+	if any(c not in string.whitespace for c in match.group(3)):
+		str_list.append(match.group(2))
+		
 	return ''.join(str_list)
 
 
