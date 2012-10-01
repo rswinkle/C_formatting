@@ -1,11 +1,13 @@
 import re, sys, string
 
-if_re = re.compile(r"if\s*(\([^{]*\)) (\s*.*?)\s*{", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
-for_re = re.compile(r"for (\(.*\)) (\s*.*?)\s*{", re.VERBOSE)
-do_re = re.compile(r"do \s*{", re.VERBOSE)
-switch_re = re.compile(r"switch (\(.*\)) (\s*.*?)\s*{", re.VERBOSE)
+
+#need to fix them all to handle single line no bracket versions
+if_re = re.compile(r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
+for_re = re.compile(r"for \s* (\(.*\)) (\s*.*?)\s*{", re.VERBOSE) #problems for something like for (uoeu)/n/tfor (asaeodua) {
+do_re = re.compile(r"do (\W+\s*.*?)\s*{", re.VERBOSE)     #maybe need to add that \W+ to all of these
+switch_re = re.compile(r"switch \s* (\([^{]*\)) (\s*.*?)\s*{", re.VERBOSE)
 else_re	= re.compile(r"}\s* else (\s*.*?)\s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
-while_re = re.compile(r"while (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
+while_re = re.compile(r"while \s* (\(.*\)) (\s*)(.*?\s*)({|;)", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
 
@@ -15,14 +17,18 @@ while_re = re.compile(r"while (\(.*\)) (\s*)(.*?\s*){", re.VERBOSE) #need to cor
 
 #works
 def fix_if(match):
+	if match.group(3) is ';':
+		print('\n\noneliner\n')
 	str_list = ['if ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
 	
-	if any(c not in string.whitespace for c in match.group(2)):
+	if not match.group(2).isspace():
 		str_list.append(match.group(2))
 	
-	print(str_list)
+	#print(match.group())
+	#print(str_list)
+	#print(''.join(str_list))
 	return ''.join(str_list)
 
 #works
@@ -31,15 +37,22 @@ def fix_for(match):
 	str_list.append(match.group(1))
 	str_list.append(' {')
 
-	if any(c not in string.whitespace for c in match.group(2)):
-		str_list.append(match.group(2))
+	if not match.group(2).isspace(): #returns false if any non-space character or empty string
+		str_list.append(match.group(2))  #we don't care about appending the empty string
 	
 	print(str_list)
 	return ''.join(str_list)
 
 #works
 def fix_do(match):
-	return 'do {'
+	str_list = ['do {']
+
+	if not match.group(1).isspace():
+		str_list.append(match.group(1))
+	
+
+	print(str_list)
+	return ''.join(str_list)
 
 #doesn't work 
 def fix_switch(match):
@@ -47,16 +60,28 @@ def fix_switch(match):
 	str_list.append(match.group(1))
 	str_list.append(' {')
 	
-	if any(c not in string.whitespace for c in match.group(2)):
+	if not match.group(2).isspace():
 		str_list.append(match.group(2))
 	
+#	print(str_list)
 	return ''.join(str_list)
 
 #works
 def fix_else(match):
+	#have to do some text processing to handle else if case especially
+	#if I want to handle something like else /* blag */ if
+	#or else //blah\nif
+	str1 = match.group(1)
+	index = str1.find('if')
+	if index < 0:
+		print('no if');
+	else:
+		else_if = str1[4:index]
+	
+	
 	str_list = ['} else {']
 	
-	if any(c not in string.whitespace for c in match.group(1)):
+	if not match.group(1).isspace():
 		str_list.append(match.group(1))
 	
 	return ''.join(str_list)
@@ -65,11 +90,15 @@ def fix_else(match):
 def fix_while(match):
 	str_list = ['while ']
 	str_list.append(match.group(1))
-	str_list.append(' {')
-	
+	if match.group(4) is '{':
+		str_list.append(' {')
+	else:
+		str_list.append(';')
+		
 	if any(c not in string.whitespace for c in match.group(3)):
 		str_list.append(match.group(2))
 		
+#	print(str_list)
 	return ''.join(str_list)
 
 
@@ -95,6 +124,7 @@ def main():
 	c_file_string = switch_re.sub(fix_switch, c_file_string)
 	c_file_string = else_re.sub(fix_else, c_file_string)
 	c_file_string = while_re.sub(fix_while, c_file_string)
+
 
 	if len(sys.argv) == 3:
 		output_file.write(c_file_string)
