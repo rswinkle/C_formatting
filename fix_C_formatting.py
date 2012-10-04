@@ -3,7 +3,7 @@ import re, sys, string
 
 #need to fix them all to handle single line no bracket versions
 if_re = re.compile(r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
-for_re = re.compile(r"for \s* (\(.*\)) (\s*.*?)\s*{", re.VERBOSE) #problems for something like for (uoeu)/n/tfor (asaeodua) {
+for_re = re.compile(r"for \W(.*?{)", re.VERBOSE | re.DOTALL) #no longer preserves comments
 do_re = re.compile(r"do (\W+\s*.*?)\s*{", re.VERBOSE)     #maybe need to add that \W+ to all of these
 switch_re = re.compile(r"switch \s* (\([^{]*\)) (\s*.*?)\s*{", re.VERBOSE)
 else_re	= re.compile(r"}\s* else (\s*.*?)\s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
@@ -17,8 +17,6 @@ while_re = re.compile(r"while \s* (\(.*\)) (\s*)(.*?\s*)({|;)", re.VERBOSE) #nee
 
 #works
 def fix_if(match):
-	if match.group(3) is ';':
-		print('\n\noneliner\n')
 	str_list = ['if ']
 	str_list.append(match.group(1))
 	str_list.append(' {')
@@ -31,18 +29,44 @@ def fix_if(match):
 	#print(''.join(str_list))
 	return ''.join(str_list)
 
-#works
+
+#seems to work but does not preserve comments anymore
+#will fix later.  Probably currently hugely unoptimal cause I don't know
+#the best pythonic way
 def fix_for(match):
 	str_list = ['for ']
-	str_list.append(match.group(1))
-	str_list.append(' {')
-
-	if not match.group(2).isspace(): #returns false if any non-space character or empty string
-		str_list.append(match.group(2))  #we don't care about appending the empty string
 	
-	print(str_list)
+	#does not handle in string
+	s = match.group(0)
+	cpp_comment = s.find('//')
+	c_comment = s.find('/*')
+	
+	s2 = strip_comments(s)
+	
+	i = s2.find(';', s2.find(';')+1)  #get second ; in for loop
+	paren = 1;
+	while paren:
+		if s2[i] == '(':
+			paren += 1;
+		if s2[i] == ')':
+			paren -= 1;
+		i += 1;
+		
+	s3 = s2[i:].lstrip()      #string = everything after closing for () with no leading whitespace
+	
+	if s3[0] != '{':              #if it doesn't have braces, don't mess with it because it's too much of a pain
+		return match.group(0)     #to try to add the closing brace too
+	
+	str_list.append(s2[s2.find('('):i]+' {\n')
+	j = len(s3[1:]) - len(s3[1:].lstrip())
+	str_list.append(s3[1:1+j])
+	
+	print(match.group(0))
+#	print(str_list)
 	return ''.join(str_list)
 
+	
+	
 #works
 def fix_do(match):
 	str_list = ['do {']
@@ -51,7 +75,7 @@ def fix_do(match):
 		str_list.append(match.group(1))
 	
 
-	print(str_list)
+	#print(str_list)
 	return ''.join(str_list)
 
 #doesn't work 
@@ -74,7 +98,8 @@ def fix_else(match):
 	str1 = match.group(1)
 	index = str1.find('if')
 	if index < 0:
-		print('no if');
+		a=1
+	#	print('no if');
 	else:
 		else_if = str1[4:index]
 	
@@ -102,6 +127,49 @@ def fix_while(match):
 	return ''.join(str_list)
 
 
+
+def strip_comments(s):
+	cpp_comment = s.find('//')
+	c_comment = s.find('/*')
+	
+	while True:
+		cpp_comment = s.find('//')
+		c_comment = s.find('/*')
+		c_comment = c_comment if c_comment != -1 else len(s);
+		cpp_comment = cpp_comment if cpp_comment != -1 else len(s);
+		
+		if c_comment == len(s) and c_comment == cpp_comment:
+			break
+		
+		if c_comment < cpp_comment:
+			s = s.replace(s[c_comment:s.find('*/')+2], '')
+			
+			if cpp_comment < len(s):
+				s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)])
+		else:
+			s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)])
+			
+			if c_comment < len(s):
+				s = s.replace(s[c_comment:s.find('*/')+2], '')
+	
+	return s
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 def main():
 	if len(sys.argv) < 2:
 		print("Usage: python3 fix_C_formatting.py inputfile [outputfile]\n")
