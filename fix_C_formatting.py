@@ -1,7 +1,7 @@
 import re, sys, string
 
 if_regex     = r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)"
-for_regex    = r"(?=(for\W.*?{))"  #r"for \W(.*?{)"  #"for(?=(\W.*?{))"   r"(?=(for\W.*?{))"
+for_regex    = r"(?=(for\W.*?{))"
 do_regex     = r"do (\W+\s*.*?)\s*{"
 switch_regex = r"switch \s* (\([^{]*\)) (\s*.*?)\s*{"
 else_regex   = r"}\s* else (\s*.*?)\s*{"
@@ -10,19 +10,79 @@ while_regex  = r"while \s* (\(.*\)) (\s*)(.*?\s*)({|;)"
 
 
 #need to fix them all to handle single line no bracket versions
-if_re     = re.compile(if_regex, re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
-for_re    = re.compile(for_regex, re.VERBOSE | re.DOTALL) #no longer preserves comments
-do_re     = re.compile(do_regex, re.VERBOSE)     #maybe need to add that \W+ to all of these
+if_re     = re.compile(if_regex, re.VERBOSE | re.DOTALL)   #correctly handles multiline comparisons and comments
+for_re    = re.compile(for_regex, re.VERBOSE | re.DOTALL)  #no longer preserves comments
+do_re     = re.compile(do_regex, re.VERBOSE)               #maybe need to add that \W+ to all of these
 switch_re = re.compile(switch_regex, re.VERBOSE)
-else_re   = re.compile(else_regex, re.VERBOSE)				#need to correctly handle/ignore else if case
-while_re  = re.compile(while_regex, re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
+else_re   = re.compile(else_regex, re.VERBOSE)             #need to correctly handle/ignore else if case
+while_re  = re.compile(while_regex, re.VERBOSE)            #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
 
+def insert(str1, str2, pos):
+	return str1[:pos] + str2 + str1[pos:]
 
+def enum(*sequential, **named):
+    enums = dict(zip(sequential, range(len(sequential))), **named)
+    return type('Enum', (), enums)
 
+def enum(**enums):
+    return type('Enum', (), enums)
 
+FSM = enum(PREOPEN=0, OPEN=1, CCOMMENT=2, CPPCOMMENT=4)
+    
 
+    
+#returns the position of the first character after the ) of the next ( 
+#starting at i, skipping comments of course
+def find_open_close_paren(s, i, end):
+	while i < end:
+		if s[i] == '(':
+			paren += 1
+		elif s[i] == ')':
+			paren -= 1;
+			if not paren:
+				break
+		elif s[i:i+2] == '/*':
+			i = s.find('*/', i+2) + 1    # set i to first character after closing - 1 because increment at end */
+		elif s[i:i+2] == '//':
+			i = s.find('\n', i+2)        # set i to \n because inc at end
+		
+		i += 1
+		
+	return i + 1;
+	
+
+#find and return position of first uncommented character c in s starting at i
+def find_first_of(s, i, c):
+	while True:
+		if s[i] == c:
+			break
+		elif s[i:i+2] == '/*':
+			i = s.find('*/', i+2) + 1    # set i to first character after closing - 1 because increment at end */
+		elif s[i:i+2] == '//':
+			i = s.find('\n', i+2)        # set i to \n because inc at end
+		
+		i += 1
+		
+	return i;
+
+#find and return position of first uncommented character in s starting at i
+def find_first(s, i, end):
+	while i < end:
+		if s[i:i+2] == '/*':
+			i = s.find('*/', i+2) + 1    # set i to first character after closing - 1 because increment at end */
+		elif s[i:i+2] == '//':
+			i = s.find('\n', i+2)        # set i to \n because inc at end
+		else:
+			break
+			
+		i += 1
+		
+	return i;
+    
+    
+    
 #works
 def fix_if(match):
 	str_list = ['if ']
@@ -38,19 +98,43 @@ def fix_if(match):
 	return ''.join(str_list)
 
 
+#python does short circuit boolean expressions
 #seems to work but does not preserve comments anymore
 #will fix later.  Probably currently hugely unoptimal cause I don't know
 #the best pythonic way
-def fix_for(match):
+def fix_for(match, file_string):
 	str_list = ['for ']
 	
 	print(match.group(1))
 	#does not handle in string
 	s = match.group(1)
-	cpp_comment = s.find('//')
-	c_comment = s.find('/*')
+
 	
-	s2 = strip_comments(s)
+
+	i = find_open_close_paren(s, 3)
+	
+	if (i == match.end(1)):
+		return file_string;
+	brace = find_first(s, i)
+	if i == match.end(1):
+		return file_string
+	
+	if brace != '{'          #could also check if brace is not last character
+		return file_string
+
+	#else brace is the last character according to 
+	s = 'for ' + s[3:i] + ' {' + s[i:-1]   #cut off last character, the brace
+	
+	return file_string[:match.start(1)] + s + file_string[match.end(1):]
+	
+	##############################
+	
+	
+
+
+
+"""
+	s2, comments = strip_comments(s)
 	
 	i = s2.find(';', s2.find(';')+1)  #get second ; in for loop
 	paren = 1;
@@ -64,8 +148,9 @@ def fix_for(match):
 	s3 = s2[i:].lstrip()      #string = everything after closing for () with no leading whitespace
 	
 	if s3[0] != '{':              #if it doesn't have braces, don't mess with it because it's too much of a pain
-		print(str_list);
+		print('no brace')
 		return match.group(1)     #to try to add the closing brace too
+	
 	
 	str_list.append(s2[s2.find('('):i]+' {\n')
 	j = len(s3[1:]) - len(s3[1:].lstrip())
@@ -74,7 +159,7 @@ def fix_for(match):
 
 	print(str_list,'\n')
 	return ''.join(str_list)
-
+"""
 	
 	
 #works
@@ -139,8 +224,7 @@ def fix_while(match):
 
 
 def strip_comments(s):
-	cpp_comment = s.find('//')
-	c_comment = s.find('/*')
+	comments = [] #list of tuples (index, comment text)
 	
 	while True:
 		cpp_comment = s.find('//')
@@ -151,18 +235,20 @@ def strip_comments(s):
 		if c_comment == len(s) and c_comment == cpp_comment:
 			break
 		
+		#only remove one per iteration in case we have comment tokens inside
+		#each other ie // baseunadteou/*
+		# or /* bseuaoeusdao // */
+		end = 0
 		if c_comment < cpp_comment:
-			s = s.replace(s[c_comment:s.find('*/')+2], '')
-			
-			if cpp_comment < len(s):
-				s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)], '')
+			end = s.find('*/') + 2
+			comments.append((c_comment, s[c_comment:end]))
+			s = s.replace(s[c_comment:end], '')
 		else:
-			s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)], '')
-			
-			if c_comment < len(s):
-				s = s.replace(s[c_comment:s.find('*/')+2], '')
+			end = s.find('\n', cpp_comment)
+			comments.append((cpp_comment, s[cpp_comment:end]))
+			s = s.replace(s[cpp_comment:end], '')
 	
-	return s
+	return s, comments
 	
 	
 	
@@ -193,7 +279,13 @@ def main():
 		if len(sys.argv) == 3:
 			output_file = open(sys.argv[2], "w")
 	except:
-		return			
+		return
+		
+		
+		
+	c_file_string_2 = c_file_string;
+	for match in for_re.finditer(c_file_string):
+		c_file_string_2 = fix_for(match, c_file_string_2)
 
 	c_file_string = for_re.sub(fix_for, c_file_string)
 	if False:
