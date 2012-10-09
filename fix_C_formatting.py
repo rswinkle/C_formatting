@@ -1,13 +1,21 @@
 import re, sys, string
 
+if_regex     = r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)"
+for_regex    = r"(?=(for\W.*?{))"  #r"for \W(.*?{)"  #"for(?=(\W.*?{))"   r"(?=(for\W.*?{))"
+do_regex     = r"do (\W+\s*.*?)\s*{"
+switch_regex = r"switch \s* (\([^{]*\)) (\s*.*?)\s*{"
+else_regex   = r"}\s* else (\s*.*?)\s*{"
+while_regex  = r"while \s* (\(.*\)) (\s*)(.*?\s*)({|;)"
+
+
 
 #need to fix them all to handle single line no bracket versions
-if_re = re.compile(r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)", re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
-for_re = re.compile(r"for \W(.*?{)", re.VERBOSE | re.DOTALL) #no longer preserves comments
-do_re = re.compile(r"do (\W+\s*.*?)\s*{", re.VERBOSE)     #maybe need to add that \W+ to all of these
-switch_re = re.compile(r"switch \s* (\([^{]*\)) (\s*.*?)\s*{", re.VERBOSE)
-else_re	= re.compile(r"}\s* else (\s*.*?)\s*{", re.VERBOSE)				#need to correctly handle/ignore else if case
-while_re = re.compile(r"while \s* (\(.*\)) (\s*)(.*?\s*)({|;)", re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
+if_re     = re.compile(if_regex, re.VERBOSE | re.DOTALL)		#correctly handles multiline comparisons and comments
+for_re    = re.compile(for_regex, re.VERBOSE | re.DOTALL) #no longer preserves comments
+do_re     = re.compile(do_regex, re.VERBOSE)     #maybe need to add that \W+ to all of these
+switch_re = re.compile(switch_regex, re.VERBOSE)
+else_re   = re.compile(else_regex, re.VERBOSE)				#need to correctly handle/ignore else if case
+while_re  = re.compile(while_regex, re.VERBOSE) #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
 
@@ -36,8 +44,9 @@ def fix_if(match):
 def fix_for(match):
 	str_list = ['for ']
 	
+	print(match.group(1))
 	#does not handle in string
-	s = match.group(0)
+	s = match.group(1)
 	cpp_comment = s.find('//')
 	c_comment = s.find('/*')
 	
@@ -55,14 +64,15 @@ def fix_for(match):
 	s3 = s2[i:].lstrip()      #string = everything after closing for () with no leading whitespace
 	
 	if s3[0] != '{':              #if it doesn't have braces, don't mess with it because it's too much of a pain
-		return match.group(0)     #to try to add the closing brace too
+		print(str_list);
+		return match.group(1)     #to try to add the closing brace too
 	
 	str_list.append(s2[s2.find('('):i]+' {\n')
 	j = len(s3[1:]) - len(s3[1:].lstrip())
 	str_list.append(s3[1:1+j])
 	
-	print(match.group(0))
-#	print(str_list)
+
+	print(str_list,'\n')
 	return ''.join(str_list)
 
 	
@@ -145,9 +155,9 @@ def strip_comments(s):
 			s = s.replace(s[c_comment:s.find('*/')+2], '')
 			
 			if cpp_comment < len(s):
-				s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)])
+				s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)], '')
 		else:
-			s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)])
+			s = s.replace(s[cpp_comment:s.find('\n', cpp_comment)], '')
 			
 			if c_comment < len(s):
 				s = s.replace(s[c_comment:s.find('*/')+2], '')
@@ -185,13 +195,14 @@ def main():
 	except:
 		return			
 
-#	if False:
-	c_file_string = if_re.sub(fix_if, c_file_string)
 	c_file_string = for_re.sub(fix_for, c_file_string)
-	c_file_string = do_re.sub(fix_do, c_file_string)
-	c_file_string = switch_re.sub(fix_switch, c_file_string)
-	c_file_string = else_re.sub(fix_else, c_file_string)
-	c_file_string = while_re.sub(fix_while, c_file_string)
+	if False:
+		c_file_string = if_re.sub(fix_if, c_file_string)
+		c_file_string = for_re.sub(fix_for, c_file_string)
+		c_file_string = do_re.sub(fix_do, c_file_string)
+		c_file_string = switch_re.sub(fix_switch, c_file_string)
+		c_file_string = else_re.sub(fix_else, c_file_string)
+		c_file_string = while_re.sub(fix_while, c_file_string)
 
 
 	if len(sys.argv) == 3:
