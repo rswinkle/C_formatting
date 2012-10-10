@@ -1,4 +1,5 @@
 import re, sys, string
+from collections import namedtuple
 
 if_regex     = r"if \s* (\([^{]*\)) (\s*.*?)\s*({|;)"
 for_regex    = r"(?=(for\W.*?{))"
@@ -36,6 +37,7 @@ FSM = enum(PREOPEN=0, OPEN=1, CCOMMENT=2, CPPCOMMENT=4)
 #returns the position of the first character after the ) of the next ( 
 #starting at i, skipping comments of course
 def find_open_close_paren(s, i, end):
+	paren = 0
 	while i < end:
 		if s[i] == '(':
 			paren += 1
@@ -98,34 +100,60 @@ def fix_if(match):
 	return ''.join(str_list)
 
 
+def in_comment(i, comment_list):
+	if not comment_list:
+		return False
+		
+	j = 0
+	while i < comment_list[j].start:
+		j += 1
+		if j >= len(comment_list):
+			return False
+			
+	if i < comment_list[j].end:
+		return True
+		
+	return False
+
+
+
+
+
 #python does short circuit boolean expressions
 #seems to work but does not preserve comments anymore
 #will fix later.  Probably currently hugely unoptimal cause I don't know
 #the best pythonic way
-def fix_for(match, file_string):
-	str_list = ['for ']
+def fix_for(match, file_string, comment_list):
 	
-	print(match.group(1))
+	m_start = match.start(1)
+	m_end = match.end(1)
+	
+	if in_comment(m_start, comment_list):
+		return file_string, m_start+3  #return position right after for
+	if in_comment(m_end-1, comment_list): #return position after {  This won't
+		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
+                                       
+	
+	print('$',match.span(1),' "'+match.group(1)+'"')
 	#does not handle in string
 	s = match.group(1)
 
 	
 
-	i = find_open_close_paren(s, 3)
+	after_paren = find_open_close_paren(s, 3, m_end)
+	#after_paren is first char after )
 	
-	if (i == match.end(1)):
-		return file_string;
-	brace = find_first(s, i)
-	if i == match.end(1):
-		return file_string
+	i = find_first(s, after_paren, m_end)
+	#i is pos of first uncommented char after 
 	
-	if brace != '{'          #could also check if brace is not last character
-		return file_string
+	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
+		return file_string, m_start+3  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
-	#else brace is the last character according to 
-	s = 'for ' + s[3:i] + ' {' + s[i:-1]   #cut off last character, the brace
+	#brace is the last character and first uncommented
+	s = 'for ' + s[3:after_paren] + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	print(s,'\n===\n')
 	
-	return file_string[:match.start(1)] + s + file_string[match.end(1):]
+	return file_string[:m_start] + s + file_string[m_end:], m_end
 	
 	##############################
 	
@@ -222,33 +250,35 @@ def fix_while(match):
 	return ''.join(str_list)
 
 
-
-def strip_comments(s):
-	comments = [] #list of tuples (index, comment text)
 	
+comment = namedtuple('comment', ['start', 'end'])
+
+#returns a list of tuples of comment start and end, ie s[start:end] is the comment
+def find_comments(s, start=0):
+	comment_list = [] #list of tuples (index, comment text)
+	
+	i = start
 	while True:
-		cpp_comment = s.find('//')
-		c_comment = s.find('/*')
+		cpp_comment = s.find('//', i)
+		c_comment = s.find('/*', i)
 		c_comment = c_comment if c_comment != -1 else len(s);
 		cpp_comment = cpp_comment if cpp_comment != -1 else len(s);
 		
 		if c_comment == len(s) and c_comment == cpp_comment:
 			break
 		
-		#only remove one per iteration in case we have comment tokens inside
-		#each other ie // baseunadteou/*
-		# or /* bseuaoeusdao // */
+		
 		end = 0
 		if c_comment < cpp_comment:
-			end = s.find('*/') + 2
-			comments.append((c_comment, s[c_comment:end]))
-			s = s.replace(s[c_comment:end], '')
+			end = s.find('*/', c_comment) + 2
+			comment_list.append(comment(c_comment, end))
+			i = end
 		else:
 			end = s.find('\n', cpp_comment)
-			comments.append((cpp_comment, s[cpp_comment:end]))
-			s = s.replace(s[cpp_comment:end], '')
+			comment_list.append(comment(cpp_comment, end))
+			i = end
 	
-	return s, comments
+	return comment_list
 	
 	
 	
@@ -281,13 +311,17 @@ def main():
 	except:
 		return
 		
-		
-		
-	c_file_string_2 = c_file_string;
-	for match in for_re.finditer(c_file_string):
-		c_file_string_2 = fix_for(match, c_file_string_2)
+	
+	comment_list = find_comments(c_file_string)
+	
+	
+	
+	match = for_re.search(c_file_string)
+	while match:
+		c_file_string, pos = fix_for(match, c_file_string, comment_list)
+		comment_list = find_comments(c_file_string, pos) 
+		match = for_re.search(c_file_string, pos)
 
-	c_file_string = for_re.sub(fix_for, c_file_string)
 	if False:
 		c_file_string = if_re.sub(fix_if, c_file_string)
 		c_file_string = for_re.sub(fix_for, c_file_string)

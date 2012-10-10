@@ -1,0 +1,5 @@
+			if(beginx<=endx&&beginz<=endz)
+			for(int i=beginx;i<=endx;i++) //blag boseuasorcdeu
+				/*test 1 2 3 */
+				for(int j=beginz;j<=endz;j++)   //bsaeasoeucadoeuasud/* steuoeu*/
+				{
