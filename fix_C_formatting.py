@@ -4,12 +4,12 @@ from collections import namedtuple
 
 
 
-if_regex     = r"(?=(if\W.*?{))"
-for_regex    = r"(?=(for\W.*?{))"
-do_regex     = r"(?=(do\W.*?{))"
-switch_regex = r"(?=(switch\W.*?{))"
-else_regex   = r"(?=(else\W.*?{))"
-while_regex  = r"(?=(while\W.*?{))"
+if_regex     = r"\s(?=(if\W.*?{))"
+for_regex    = r"\s(?=(for\W.*?{))"
+do_regex     = r"\s(?=(do\W.*?{))"
+switch_regex = r"\s(?=(switch\W.*?{))"
+else_regex   = r"\s(?=(else\W.*?{))"
+while_regex  = r"\s(?=(while\W.*?{))"
 
 
 
@@ -117,7 +117,7 @@ def fix_if(match, file_string, comment_list):
 		return file_string, m_start + start_len  #return position right after if
 	if in_comment(m_end-1, comment_list): #return position after {  This won't
 		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
+
 	
 	#print('$',match.span(1),' "'+match.group(1)+'"')
 	#does not handle in string
@@ -133,7 +133,7 @@ def fix_if(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'if ' + s[start_len:after_paren] + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'if ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -160,11 +160,11 @@ def fix_for(match, file_string, comment_list):
 		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
                                        
 	
-	print('$',match.span(1),' "'+match.group(1)+'"')
+	#print('$',match.span(1),' "'+match.group(1)+'"')
 	#does not handle in string
 	s = match.group(1)
 
-	print(start_len, m_end)
+	#print(start_len, m_end)
 	after_paren = find_open_close_paren(s, start_len, len(s))
 
 	#returning len(s)+1 can still happen if the match starts in a string literal
@@ -185,7 +185,7 @@ def fix_for(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'for ' + s[start_len:after_paren] + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'for ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -251,7 +251,7 @@ def fix_switch(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'switch ' + s[start_len:after_paren] + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'switch ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -323,7 +323,7 @@ def fix_while(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'while ' + s[start_len:after_paren] + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'while ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -398,7 +398,7 @@ def main():
 		file_list   =   glob.glob(sys.argv[1] + '*.c')
 		file_list += glob.glob(sys.argv[1] + '*.cpp')
 	else:
-		c_files.append(sys.argv[1])
+		file_list.append(sys.argv[1])
 
 	for f in file_list:
 		try:
