@@ -1,4 +1,4 @@
-import re, sys, string, glob
+import re, sys, string, glob, argparse
 from os.path import *
 from collections import namedtuple
 
@@ -217,7 +217,7 @@ def fix_do(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'do {' + s[start_len:-1]   #cut off last character, the brace
+	s = 'do {' + s[start_len:-1].lstrip()   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -289,7 +289,7 @@ def fix_else(match, file_string, comment_list):
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
-	s = 'else {' + s[start_len:-1]   #cut off last character, the brace
+	s = 'else {' + s[start_len:-1].lstrip()   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -362,6 +362,19 @@ def find_comments(s, start=0):
 	
 	
 
+def recurse_dir(root, filetypes):                                           # for a root dir
+	files = []
+	for (thisdir, subshere, fileshere) in os.walk(root):    # generate dirs in tree
+		for t in filetypes:
+			files.extend(glob.glob(thisdir+'/*'+t))
+		#print('[' + thisdir + ']')
+		#for fname in fileshere:                             # files in this dir
+			#if any(fname.endswith(t) for t in filetypes):
+				#files.append(os.path.join(thisdir, fname))             # add dir name prefix
+				#print(path)
+	return files
+
+
 	
 	
 	
@@ -382,41 +395,57 @@ fix_functions = [fix_if, fix_for, fix_do, fix_switch, fix_else, fix_while]
 
 
 def main():
-	if len(sys.argv) < 2:
-		print("Usage: python3 fix_C_formatting.py directory | inputfile [outputfile]\n")
-		print("If the first argument is a directory, this script will edit every c and cpp file it finds and overwrite them")
-		return
+	parser = argparse.ArgumentParser(description="Convert C/C++ files to The One True Brace Style")
+	parser.add_argument("-i", "--input", nargs="+", default=[sys.stdin])
+	parser.add_argument("-f", "--filetypes", nargs="+", default=[".c", ".cpp"])
+	parser.add_argument("-r", "--recursive", action="store_true")
+	group = parser.add_mutually_exclusive_group()
+	group.add_argument("-o", "--overwrite", action="store_true")
+	group.add_argument("-s", "--suffix")
 
-	for i in sys.argv:
-		print(i)
+	args = parser.parse_args()
+	print(args)
+
+
+
+
 
 	file_list = []
-	directory = ''
-
-	if isdir(sys.argv[1]):
-		directory = sys.argv[1] if sys.argv[1][-1] == '/' else sys.argv[1] + '/'
-		file_list   =   glob.glob(sys.argv[1] + '*.c')
-		file_list += glob.glob(sys.argv[1] + '*.cpp')
+	if args.input[0] == sys.stdin:
+		file_list.append(sys.stdin)
 	else:
-		file_list.append(sys.argv[1])
+		for i in args.input:
+			if isdir(i):
+				if args.recursive:
+					file_list += recurse_dir(i, filetypes)
+				else:
+					for t in filetypes:
+						file_list += glob.glob(thisdir+'/*'+t)
+			else:
+				file_list.append(i)
+
 
 	for f in file_list:
-		try:
-			c_file_string = open(f, "r").read()
-		except:
-			return
+		if f == sys.stdin:
+			c_file_string = f.read()
+		else:
+			try:
+				c_file_string = open(f, "r").read()
+			except:
+				return
 		
 		comment_list = find_comments(c_file_string)
 		
 		for regex, fix_func in zip(regexes, fix_functions):
 			c_file_string = fix_construct(regex, fix_func, c_file_string, comment_list)
 
-		if directory:
-			open(f, 'w').write(c_file_string)
-		elif len(sys.argv) == 3:
-			open(sys.argv[2], 'w').write(c_file_string)
-		else:
+		if f == sys.stdin:
 			print(c_file_string)
+		elif args.overwrite:
+			open(f, 'w').write(c_file_string)
+		else:
+			open(f+args.suffix, 'w').write(c_file_string)
+
 
 
 	#regex = for_re
