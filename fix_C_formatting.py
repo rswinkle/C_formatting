@@ -33,16 +33,18 @@ def enum(*sequential, **named):
 def enum(**enums):
     return type('Enum', (), enums)
 
-FSM = enum(PREOPEN=0, OPEN=1, CCOMMENT=2, CPPCOMMENT=4)
     
 
     
-#returns the position of the first character after the ) of the next ( 
+#returns the positions of the first ( and matching ) 
 #starting at i, skipping comments of course
 def find_open_close_paren(s, i, end):
 	paren = 0
+	open_paren = -1
 	while i < end:
 		if s[i] == '(':
+			if open_paren < 0:
+				open_paren = i
 			paren += 1
 		elif s[i] == ')':
 			paren -= 1;
@@ -55,7 +57,7 @@ def find_open_close_paren(s, i, end):
 		
 		i += 1
 
-	return i + 1;
+	return open_paren, i;
 
 #find and return position of first uncommented character c in s starting at i
 def find_first_of(s, i, c):
@@ -91,14 +93,16 @@ def in_comment(i, comment_list):
 		return False
 		
 	j = 0
-	while i < comment_list[j].start:
-		j += 1
-		if j >= len(comment_list):
+	while j < len(comment_list):
+		if i > comment_list[j].start:
+			if i < comment_list[j].end:
+				return True
+		else:
 			return False
-			
-	if i < comment_list[j].end:
-		return True
-		
+
+		j += 1
+
+	
 	return False
 
 
@@ -112,28 +116,33 @@ def fix_if(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 2
 
-
 	if in_comment(m_start, comment_list):
 		return file_string, m_start + start_len  #return position right after if
 	if in_comment(m_end-1, comment_list): #return position after {  This won't
 		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
 
-	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
 	#does not handle in string
 	s = match.group(1)
 
-	after_paren = find_open_close_paren(s, start_len, len(s))
-	#after_paren is first char after )
-	
+	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	after_paren = close_paren + 1
+
 	i = find_first(s, after_paren, len(s))
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
-	#brace is the last character and first uncommented
-	s = 'if ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	nl_after_paren = s.find('\n', after_paren)
+	# find amount to add to after_paren to get rid of any trailing whitespace
+	# if there is any non-whitespace character after ) before {, keep everything
+
+	if not s[after_paren:nl_after_paren].isspace():
+		nl_after_paren = 0
+	else:
+		nl_after_paren = len(s[after_paren:nl_after_paren]) - len(s[after_paren:nl_after_paren].lstrip(string.whitespace.replace('\n','')))
+
+	s = 'if '+ s[start_len:open_paren].strip() +'(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -153,19 +162,19 @@ def fix_for(match, file_string, comment_list):
 	m_start = match.start(1)
 	m_end = match.end(1)
 	start_len = 3
-	
+
 	if in_comment(m_start, comment_list):
 		return file_string, m_start + start_len  #return position right after for
 	if in_comment(m_end-1, comment_list): #return position after {  This won't
 		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
-	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
+                                   
+
 	#does not handle in string
 	s = match.group(1)
 
 	#print(start_len, m_end)
-	after_paren = find_open_close_paren(s, start_len, len(s))
+	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	after_paren = close_paren + 1
 
 	#returning len(s)+1 can still happen if the match starts in a string literal
 	#or something other than a comment
@@ -184,8 +193,17 @@ def fix_for(match, file_string, comment_list):
 		print('first uncommented char is "'+ s[i] + '" at ', i)
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
+	nl_after_paren = s.find('\n', after_paren)
+	# find amount to add to after_paren to get rid of any trailing whitespace
+	# if there is any non-whitespace character after ) before {, keep everything
+
+	if not s[after_paren:nl_after_paren].isspace():
+		nl_after_paren = 0
+	else:
+		nl_after_paren = len(s[after_paren:nl_after_paren]) - len(s[after_paren:nl_after_paren].lstrip(string.whitespace.replace('\n','')))
+
 	#brace is the last character and first uncommented
-	s = 'for ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'for '+ s[start_len:open_paren].strip() + '(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -241,8 +259,8 @@ def fix_switch(match, file_string, comment_list):
 	#does not handle in string
 	s = match.group(1)
 
-	after_paren = find_open_close_paren(s, start_len, len(s))
-	#after_paren is first char after )
+	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	after_paren = close_paren + 1
 	
 	i = find_first(s, after_paren, len(s))
 	#i is pos of first uncommented char after 
@@ -250,8 +268,18 @@ def fix_switch(match, file_string, comment_list):
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
+	nl_after_paren = s.find('\n', after_paren)
+	# find amount to add to after_paren to get rid of any trailing whitespace
+	# if there is any non-whitespace character after ) before {, keep everything
+
+	if not s[after_paren:nl_after_paren].isspace():
+		nl_after_paren = 0
+	else:
+		nl_after_paren = len(s[after_paren:nl_after_paren]) - len(s[after_paren:nl_after_paren].lstrip(string.whitespace.replace('\n','')))
+
+
 	#brace is the last character and first uncommented
-	s = 'switch ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'switch ' +  s[start_len:open_paren].strip() + '(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -313,8 +341,8 @@ def fix_while(match, file_string, comment_list):
 	#does not handle in string
 	s = match.group(1)
 
-	after_paren = find_open_close_paren(s, start_len, len(s))
-	#after_paren is first char after )
+	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	after_paren = close_paren + 1
 	
 	i = find_first(s, after_paren, len(s))
 	#i is pos of first uncommented char after 
@@ -322,8 +350,15 @@ def fix_while(match, file_string, comment_list):
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
+	nl_after_paren = s.find('\n', after_paren)
+	if not s[after_paren:nl_after_paren].isspace():
+		nl_after_paren = 0
+	else:
+		nl_after_paren = len(s[after_paren:nl_after_paren]) - len(s[after_paren:nl_after_paren].lstrip(string.whitespace.replace('\n','')))
+
+
 	#brace is the last character and first uncommented
-	s = 'while ' + s[start_len:after_paren].lstrip() + ' {' + s[after_paren:-1]   #cut off last character, the brace
+	s = 'while ' + s[start_len:open_paren].strip() + '(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 	#print(s,'\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
@@ -353,7 +388,7 @@ def find_comments(s, start=0):
 			comment_list.append(comment(c_comment, end))
 			i = end
 		else:
-			end = s.find('\n', cpp_comment)
+			end = s.find('\n', cpp_comment) + 1
 			comment_list.append(comment(cpp_comment, end))
 			i = end
 	
@@ -378,11 +413,13 @@ def recurse_dir(root, filetypes):                                           # fo
 	
 	
 	
-def fix_construct(regex, fix_func, c_file_string, comment_list):
+def fix_construct(regex, fix_func, c_file_string):
 	match = regex.search(c_file_string)
+	comment_list = []
+	pos = 0
 	while match:
-		c_file_string, pos = fix_func(match, c_file_string, comment_list)
-		comment_list = find_comments(c_file_string, pos) 
+		comment_list = find_comments(c_file_string, pos)
+		c_file_string, pos = fix_func(match, c_file_string, comment_list) 
 		match = regex.search(c_file_string, pos)
 	
 	return c_file_string
@@ -393,15 +430,19 @@ regexes       = [if_re, for_re, do_re, switch_re, else_re, while_re]
 fix_functions = [fix_if, fix_for, fix_do, fix_switch, fix_else, fix_while]
 
 
+suffix_help ="""specify a suffix string to append to input files for output,
+ie -s _fixed writes the results of fixing file1.cpp to file1.cpp_fixed"""
+
+
 
 def main():
 	parser = argparse.ArgumentParser(description="Convert C/C++ files to The One True Brace Style")
-	parser.add_argument("-i", "--input", nargs="+", default=[sys.stdin])
-	parser.add_argument("-f", "--filetypes", nargs="+", default=[".c", ".cpp"])
-	parser.add_argument("-r", "--recursive", action="store_true")
+	parser.add_argument("-i", "--input", nargs="+", default=[sys.stdin], help="the input file(s) and directories (default = stdin)")
+	parser.add_argument("-f", "--filetypes", nargs="+", default=[".c", ".cpp"], help="the filetypes to fix in directories (default = ['.c', '.cpp]")
+	parser.add_argument("-r", "--recursive", action="store_true", help="search through given directories recursively")
 	group = parser.add_mutually_exclusive_group()
-	group.add_argument("-o", "--overwrite", action="store_true")
-	group.add_argument("-s", "--suffix")
+	group.add_argument("-o", "--overwrite", action="store_true", help="overwrite fixed files (Make a backup or use source control!!)")
+	group.add_argument("-s", "--suffix", help=suffix_help)
 
 	args = parser.parse_args()
 	print(args)
@@ -419,8 +460,8 @@ def main():
 				if args.recursive:
 					file_list += recurse_dir(i, filetypes)
 				else:
-					for t in filetypes:
-						file_list += glob.glob(thisdir+'/*'+t)
+					for t in args.filetypes:
+						file_list += glob.glob(i+'/*'+t)
 			else:
 				file_list.append(i)
 
@@ -434,18 +475,18 @@ def main():
 			except:
 				return
 		
-		comment_list = find_comments(c_file_string)
+		#comment_list = find_comments(c_file_string)
 		
 		for regex, fix_func in zip(regexes, fix_functions):
-			c_file_string = fix_construct(regex, fix_func, c_file_string, comment_list)
+			c_file_string = fix_construct(regex, fix_func, c_file_string)
 
-		if f == sys.stdin:
-			print(c_file_string)
-		elif args.overwrite:
+
+		if args.overwrite:
 			open(f, 'w').write(c_file_string)
-		else:
+		elif args.suffix:
 			open(f+args.suffix, 'w').write(c_file_string)
-
+		else:
+			print(c_file_string)
 
 
 	#regex = for_re
