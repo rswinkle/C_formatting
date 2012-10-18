@@ -1,8 +1,9 @@
-This is a python script that converts C/C++ files to The One True Brace style (OTBS).
-It is still a work in progress, and I have several ideas for improvements and of course I need to clean up the code.
+This is a python script that converts C/C++ files to the One True Brace Style (OTBS).
+It currently works (though it needs to be more strenuously tested) but it is still a
+work in progress, and I have several ideas for improvements/features and of course I need to clean up the code.
 
-You can probably tell that I'm a C/C++ programmer who is not familiar with pythonic methods of doing things.  That's
-another reason I'm doing this project, just to learn regular expressions and get more experience with python and some
-of it's libraries.
+You can probably tell that I'm a C/C++ programmer who is not very familiar with pythonic
+methods of doing things.  That's another reason I'm doing this project, just to learn
+regular expressions and get more experience with Python and some of it's libraries.
 
-At the same time I think having a tool to automatically convert any C/C++ project to my prefered style is pretty awesome.
+At the same time I think having a tool to automatically convert any C/C++ project to my preferred style is pretty awesome.
