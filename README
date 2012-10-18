@@ -1,3 +1,8 @@
-I started this project mostly to finally learn practical regular expressions specifically in python.
+This is a python script that converts C/C++ files to The One True Brace style (OTBS).
+It is still a work in progress, and I have several ideas for improvements and of course I need to clean up the code.
 
-At the same time I think having a tool to automatically convert any C/C++ project to your exact style is pretty awesome.
+You can probably tell that I'm a C/C++ programmer who is not familiar with pythonic methods of doing things.  That's
+another reason I'm doing this project, just to learn regular expressions and get more experience with python and some
+of it's libraries.
+
+At the same time I think having a tool to automatically convert any C/C++ project to my prefered style is pretty awesome.
