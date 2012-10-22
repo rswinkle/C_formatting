@@ -1,7 +1,7 @@
+#from __future__ import print_function
 import re, sys, string, glob, argparse, os
 from os.path import *
 from collections import namedtuple
-
 
 
 if_regex     = r"\s(?=(if\W.*?{))"
@@ -22,7 +22,7 @@ else_re   = re.compile(else_regex, re.VERBOSE)             #need to correctly ha
 while_re  = re.compile(while_regex, re.VERBOSE)            #need to correctly handle the do while case ie } while() instead of }\n while()
 
 
-be_cautious = False
+
 
 
 def insert(str1, str2, pos):
@@ -118,6 +118,9 @@ def fix_if(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 2
 
+#	print(comment_list)
+#	print(match.span(1), '"'+match.group(1)+'"')
+	
 	if in_comment(m_start, comment_list):
 		return file_string, m_start + start_len  #return position right after if
 	if in_comment(m_end-1, comment_list): #return position after {  This won't
@@ -149,9 +152,12 @@ def fix_if(match, file_string, comment_list):
 
 	if not be_cautious:
 		s = 'if '+ s[start_len:open_paren].strip() +'(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
+	#	print("not cautious:")
 	else:
 		s = 'if '+ s[start_len:open_paren].strip() + s[open_paren:close_paren+1] + ' {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
-	#print(s,'\n===\n')
+	#	print("cautiious:")
+
+	#print('\n===\n')
 	
 	return file_string[:m_start] + s + file_string[m_end:], m_end
 
@@ -170,7 +176,7 @@ def fix_for(match, file_string, comment_list):
 	m_start = match.start(1)
 	m_end = match.end(1)
 	start_len = 3
-
+	
 	if in_comment(m_start, comment_list):
 		return file_string, m_start + start_len  #return position right after for
 	if in_comment(m_end-1, comment_list): #return position after {  This won't
@@ -196,7 +202,7 @@ def fix_for(match, file_string, comment_list):
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		print('first uncommented char is "'+ s[i] + '" at ', i)
+		#print('first uncommented char is "'+ s[i] + '" at ', i)
 		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	nl_after_paren = s.find('\n', after_paren)
@@ -393,31 +399,67 @@ def fix_while(match, file_string, comment_list):
 	
 comment = namedtuple('comment', ['start', 'end'])
 
-#returns a list of tuples of comment start and end, ie s[start:end] is the comment
-def find_comments(s, start=0):
+#returns a list of tuples of comment and string literal start and end, ie s[start:end] is the comment
+def find_non_code(s, start=0):
 	comment_list = [] #list of tuples (index, comment text)
 	
 	i = start
 	while True:
 		cpp_comment = s.find('//', i)
 		c_comment = s.find('/*', i)
+		#want to skip escaped quotations
+		tmp = i
+		while True:
+			str_literal = s.find('"', tmp)   #have to handle escaped double quote and the single character '"'
+			if s[str_literal-1] != '\\' and s[str_literal-1] != "'" or str_literal == -1:
+				break
+			tmp += 1
+			
 		c_comment = c_comment if c_comment != -1 else len(s);
 		cpp_comment = cpp_comment if cpp_comment != -1 else len(s);
+		str_literal = str_literal if str_literal != -1 else len(s);
 		
-		if c_comment == len(s) and c_comment == cpp_comment:
+		if c_comment == len(s) and c_comment == cpp_comment and c_comment == str_literal:
 			break
 		
-		
 		end = 0
-		if c_comment < cpp_comment:
+		if c_comment < cpp_comment and c_comment < str_literal:
 			end = s.find('*/', c_comment) + 2
+			#print(len(comment_list), '\t', c_comment, '\t', end)
 			comment_list.append(comment(c_comment, end))
 			i = end
-		else:
+		elif cpp_comment < str_literal:
 			end = s.find('\n', cpp_comment) + 1
+			#print(len(comment_list), '\t', cpp_comment, '\t', end)
 			comment_list.append(comment(cpp_comment, end))
 			i = end
+		else:      #str_liteal is first/least
+			tmp = str_literal+1
+			while True:   #ignore escaped "'s
+				end = s.find('"', tmp)
+				if s[end-1] != '\\' :    # don't have to check for -1 here (except maybe at end of file or code that already doesn't compile
+					break
+				else:
+					n = 1
+					while s[end-n] == '\\':
+						n += 1
+
+					if n % 2 == 1:  # handle something like "blah blah \\"  break if n is odd because n will be 1 more than num \'s
+						break       # I should make a function for all of this
+
+				tmp += 1
+				
+			end += 1
+			#print(len(comment_list), '\t', str_literal, '\t', end)
+			comment_list.append(comment(str_literal, end))
+			i = end
 	
+			if len(comment_list) > 10000:
+				print("There must be an error, > 1000 comments, exiting")
+				sys.exit()
+	
+	
+		#print(s[comment_list[-1].start:comment_list[-1].end]+'\n')
 	return comment_list
 	
 	
@@ -444,7 +486,7 @@ def fix_construct(regex, fix_func, c_file_string):
 	comment_list = []
 	pos = 0
 	while match:
-		comment_list = find_comments(c_file_string, pos)
+		comment_list = find_non_code(c_file_string)
 		c_file_string, pos = fix_func(match, c_file_string, comment_list) 
 		match = regex.search(c_file_string, pos)
 	
@@ -475,8 +517,9 @@ def main():
 	print(args)
 
 
+	global be_cautious
 	be_cautious = args.cautious
-
+	print(args.cautious, be_cautious)
 
 
 	file_list = []
@@ -493,8 +536,9 @@ def main():
 			else:
 				file_list.append(i)
 
-
+	print("fixing ",len(file_list), "files")
 	for f in file_list:
+		print("fixing",f,"1 of",str(len(file_list)))
 		if f == sys.stdin:
 			c_file_string = f.read()
 		else:
@@ -503,7 +547,7 @@ def main():
 			except:
 				return
 		
-		#comment_list = find_comments(c_file_string)
+		#comment_list = find_non_code(c_file_string)
 		
 		for regex, fix_func in zip(regexes, fix_functions):
 			c_file_string = fix_construct(regex, fix_func, c_file_string)
@@ -523,7 +567,7 @@ def main():
 	#match = regex.search(c_file_string)
 	#while match:
 		#c_file_string, pos = fix_func(match, c_file_string, comment_list)
-		#comment_list = find_comments(c_file_string, pos) 
+		#comment_list = find_non_code(c_file_string, pos) 
 		#match = regex.search(c_file_string, pos)
 
 
