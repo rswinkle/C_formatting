@@ -1,4 +1,6 @@
 #from __future__ import print_function
+#I learned and develop in python 3.x, whatever is in my distribution packages (3.2 currently)
+#I've found with the print function 2.7 generally works the same
 import re, sys, string, glob, argparse, os
 from os.path import *
 from collections import namedtuple
@@ -13,13 +15,13 @@ while_regex  = r"\s(?=(while\W.*?{))"
 
 
 
-#need to fix them all to handle single line no bracket versions
-if_re     = re.compile(if_regex, re.VERBOSE | re.DOTALL)   #correctly handles multiline comparisons and comments
-for_re    = re.compile(for_regex, re.VERBOSE | re.DOTALL)  #no longer preserves comments
-do_re     = re.compile(do_regex, re.VERBOSE)               #maybe need to add that \W+ to all of these
+
+if_re     = re.compile(if_regex, re.VERBOSE | re.DOTALL) 
+for_re    = re.compile(for_regex, re.VERBOSE | re.DOTALL)
+do_re     = re.compile(do_regex, re.VERBOSE)
 switch_re = re.compile(switch_regex, re.VERBOSE)
-else_re   = re.compile(else_regex, re.VERBOSE)             #need to correctly handle/ignore else if case
-while_re  = re.compile(while_regex, re.VERBOSE)            #need to correctly handle the do while case ie } while() instead of }\n while()
+else_re   = re.compile(else_regex, re.VERBOSE)
+while_re  = re.compile(while_regex, re.VERBOSE)
 
 
 
@@ -29,11 +31,11 @@ def insert(str1, str2, pos):
 	return str1[:pos] + str2 + str1[pos:]
 
 def enum(*sequential, **named):
-    enums = dict(zip(sequential, range(len(sequential))), **named)
-    return type('Enum', (), enums)
+	enums = dict(zip(sequential, range(len(sequential))), **named)
+	return type('Enum', (), enums)
 
 def enum(**enums):
-    return type('Enum', (), enums)
+	return type('Enum', (), enums)
 
     
 
@@ -44,6 +46,7 @@ def find_open_close_paren(s, i, end):
 	paren = 0
 	open_paren = -1
 	while i < end:
+		#print(i,end=' ')
 		if s[i] == '(':
 			if open_paren < 0:
 				open_paren = i
@@ -56,6 +59,9 @@ def find_open_close_paren(s, i, end):
 			i = s.find('*/', i+2) + 1    # set i to first character after closing - 1 because increment at end */
 		elif s[i:i+2] == '//':
 			i = s.find('\n', i+2)        # set i to \n because inc at end
+
+		if i <= 0:   #<= because i + 1 in the /* case
+			return open_paren, -1
 		
 		i += 1
 
@@ -90,56 +96,59 @@ def find_first(s, i, end):
 	return i;
 
 
+#return a tuple (x, y) where x is comment index i is in
+#or -1 if it's not in one and y is the first comment after
+#i, so if i is in a comment it would return (x, x+1)
 def in_comment(i, comment_list):
 	if not comment_list:
-		return False
+		return -1, -1
 		
 	j = 0
 	while j < len(comment_list):
 		if i > comment_list[j].start:
 			if i < comment_list[j].end:
-				return True
+				return j, j+1
 		else:
-			return False
+			return -1, j+1
 
 		j += 1
 
 	
-	return False
+	return -1, -1  #should never get here
 
 
 
 
-    
-    
-#works
 def fix_if(match, file_string, comment_list):
 	m_start = match.start(1)
 	m_end = match.end(1)
 	start_len = 2
 
-#	print(comment_list)
-#	print(match.span(1), '"'+match.group(1)+'"')
 	
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after if
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
+	
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
 
-	#does not handle in string
+
 	s = match.group(1)
-	#print(match.span(1), '"'+s+'"')
 
 	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	if open_paren == -1 or close_paren == -1:
+		return file_string, comment_list[next_comment_start].end, next_comment_end  #I think this is right
+
 	after_paren = close_paren + 1
 
 	i = find_first(s, after_paren, len(s))
-	if i >= len(s):  #must not be valid (maybe we matched inside a string literal)
-		return file_string, m_start + start_len  # can just check here instead of after paren too
+	if i >= len(s):  #must not be valid (not in comment or string literal but could be #ifdef'd . . .
+		return file_string, m_start + start_len, next_comment_start  # can just check here instead of after paren too
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	nl_after_paren = s.find('\n', after_paren)
 	# find amount to add to after_paren to get rid of any trailing whitespace
@@ -152,14 +161,11 @@ def fix_if(match, file_string, comment_list):
 
 	if not be_cautious:
 		s = 'if '+ s[start_len:open_paren].strip() +'(' +  s[open_paren+1:close_paren].strip() + ') {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
-	#	print("not cautious:")
 	else:
 		s = 'if '+ s[start_len:open_paren].strip() + s[open_paren:close_paren+1] + ' {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
-	#	print("cautiious:")
 
-	#print('\n===\n')
 	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 
@@ -177,17 +183,20 @@ def fix_for(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 3
 	
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after for
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
+	
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
                                    
-
-	#does not handle in string
 	s = match.group(1)
 
-	#print(start_len, m_end)
 	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	if open_paren == -1 or close_paren == -1:
+		return file_string, comment_list[next_comment_start].end, next_comment_end  #I think this is right
+
 	after_paren = close_paren + 1
 
 	#returning len(s) can still happen if the match starts in a string literal
@@ -196,14 +205,13 @@ def fix_for(match, file_string, comment_list):
 	
 	i = find_first(s, after_paren, len(s))
 	if i >= len(s):
-		return file_string, m_start + start_len
+		return file_string, m_start + start_len, next_comment_start
 
 
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		#print('first uncommented char is "'+ s[i] + '" at ', i)
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	nl_after_paren = s.find('\n', after_paren)
 	# find amount to add to after_paren to get rid of any trailing whitespace
@@ -220,9 +228,8 @@ def fix_for(match, file_string, comment_list):
 	else:
 		s = 'for '+ s[start_len:open_paren].strip() + s[open_paren:close_paren+1] + ' {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 
-	#print(s,'\n===\n')
 	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 
@@ -234,29 +241,28 @@ def fix_do(match, file_string, comment_list):
 	start_len = 2
 
 
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after do
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
 	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
-	#does not handle in string
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
+
 	s = match.group(1)
 
 	i = find_first(s, start_len, len(s))
 	if i >= len(s):
-		return file_string, m_start + start_len
+		return file_string, m_start + start_len, next_comment_start
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
 	s = 'do {' + s[start_len:-1].lstrip()   #cut off last character, the brace
-	#print(s,'\n===\n')
 	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 
@@ -267,26 +273,29 @@ def fix_switch(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 6
 
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after if
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
 	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
-	#does not handle in string
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
+                                       
 	s = match.group(1)
 
 	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	if open_paren == -1 or close_paren == -1:
+		return file_string, comment_list[next_comment_start].end, next_comment_end  #I think this is right
+
 	after_paren = close_paren + 1
 	
 	i = find_first(s, after_paren, len(s))
 	if i >= len(s):
-		return file_string, m_start + start_len
+		return file_string, m_start + start_len, next_comment_start
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	nl_after_paren = s.find('\n', after_paren)
 	# find amount to add to after_paren to get rid of any trailing whitespace
@@ -304,9 +313,8 @@ def fix_switch(match, file_string, comment_list):
 	else:
 		s = 'switch '+ s[start_len:open_paren].strip() + s[open_paren:close_paren+1] + ' {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 
-	#print(s,'\n===\n')
-	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 
@@ -319,20 +327,19 @@ def fix_else(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 4
 
-
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after if
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
 	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
-	#does not handle in string
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
+
 	s = match.group(1)
 	
 	i = find_first(s, start_len, len(s))
 	if i >= len(s):
-		return file_string, m_start + start_len
+		return file_string, m_start + start_len, next_comment_start
 
 	#if s[i:i+2] == 'if':
 		#return file_string, m_start+start_len   #ignore else if case for now, most people put them on the same line anyway
@@ -340,13 +347,12 @@ def fix_else(match, file_string, comment_list):
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	#brace is the last character and first uncommented
 	s = 'else {' + s[start_len:-1].lstrip()   #cut off last character, the brace
-	#print(s,'\n===\n')
 	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 
@@ -357,26 +363,29 @@ def fix_while(match, file_string, comment_list):
 	m_end = match.end(1)
 	start_len = 5
 
-	if in_comment(m_start, comment_list):
-		return file_string, m_start + start_len  #return position right after if
-	if in_comment(m_end-1, comment_list): #return position after {  This won't
-		return file_string, m_end         #fix something like for() /* { */\n/t { oh well
-                                       
+	start_in_comment, next_comment_start = in_comment(m_start, comment_list)
+	if start_in_comment >= 0:
+		return file_string, comment_list[start_in_comment].end, next_comment_start  #return position at end of comment
 	
-	#print('$',match.span(1),' "'+match.group(1)+'"')
-	#does not handle in string
+	end_in_comment, next_comment_end = in_comment(m_end-1, comment_list)
+	if end_in_comment >= 0:                                          #return position after comment  This won't
+		return file_string, comment_list[end_in_comment].end, next_comment_end         #fix something like for() /* { */\n/t { oh well
+
 	s = match.group(1)
 
 	open_paren, close_paren = find_open_close_paren(s, start_len, len(s))
+	if open_paren == -1 or close_paren == -1:
+		return file_string, comment_list[next_comment_start].end, next_comment_end  #I think this is right
+
 	after_paren = close_paren + 1
 	
 	i = find_first(s, after_paren, len(s))
 	if i >= len(s):
-		return file_string, m_start + start_len
+		return file_string, m_start + start_len, next_comment_start
 	#i is pos of first uncommented char after 
 	
 	if s[i] != '{':         #if it's not a brace, it's a statement or new block s
-		return file_string, m_start + start_len  #don't touch if it doesn't have braces (brace at end of match is for something else)
+		return file_string, m_start + start_len, next_comment_start  #don't touch if it doesn't have braces (brace at end of match is for something else)
 
 	nl_after_paren = s.find('\n', after_paren)
 	if not s[after_paren:nl_after_paren].isspace():
@@ -391,9 +400,8 @@ def fix_while(match, file_string, comment_list):
 	else:
 		s = 'while '+ s[start_len:open_paren].strip() + s[open_paren:close_paren+1] + ' {' + s[after_paren+nl_after_paren:-1]   #cut off last character, the brace
 
-	#print(s,'\n===\n')
 	
-	return file_string[:m_start] + s + file_string[m_end:], m_end
+	return file_string[:m_start] + s + file_string[m_end:], m_end, None
 
 
 	
@@ -454,8 +462,8 @@ def find_non_code(s, start=0):
 			comment_list.append(comment(str_literal, end))
 			i = end
 	
-			if len(comment_list) > 10000:
-				print("There must be an error, > 1000 comments, exiting")
+			if len(comment_list) > 1000000:
+				print("There must be an error, > 1000000 comments and string literals, exiting")
 				sys.exit()
 	
 	
@@ -485,9 +493,14 @@ def fix_construct(regex, fix_func, c_file_string):
 	match = regex.search(c_file_string)
 	comment_list = []
 	pos = 0
+	start_comment = None
 	while match:
-		comment_list = find_non_code(c_file_string)
-		c_file_string, pos = fix_func(match, c_file_string, comment_list) 
+		if not start_comment:
+			comment_list = find_non_code(c_file_string, pos)
+		else:                                           #last match wasn't edited so just
+			comment_list = comment_list[start_comment:] #cut comment list to comments after starting search position
+			
+		c_file_string, pos, start_comment = fix_func(match, c_file_string, comment_list)
 		match = regex.search(c_file_string, pos)
 	
 	return c_file_string
@@ -537,8 +550,8 @@ def main():
 				file_list.append(i)
 
 	print("fixing ",len(file_list), "files")
-	for f in file_list:
-		print("fixing",f,"1 of",str(len(file_list)))
+	for file_num, f in enumerate(file_list):
+		print("fixing",f,str(file_num),"of",str(len(file_list)))
 		if f == sys.stdin:
 			c_file_string = f.read()
 		else:
@@ -546,9 +559,7 @@ def main():
 				c_file_string = open(f, "r").read()
 			except:
 				return
-		
-		#comment_list = find_non_code(c_file_string)
-		
+
 		for regex, fix_func in zip(regexes, fix_functions):
 			c_file_string = fix_construct(regex, fix_func, c_file_string)
 
@@ -560,15 +571,6 @@ def main():
 		else:
 			print(c_file_string)
 
-
-	#regex = for_re
-	#fix_func = fix_for
-
-	#match = regex.search(c_file_string)
-	#while match:
-		#c_file_string, pos = fix_func(match, c_file_string, comment_list)
-		#comment_list = find_non_code(c_file_string, pos) 
-		#match = regex.search(c_file_string, pos)
 
 
 if __name__ == "__main__":
