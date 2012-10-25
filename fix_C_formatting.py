@@ -24,7 +24,7 @@ else_re   = re.compile(else_regex, re.VERBOSE)
 while_re  = re.compile(while_regex, re.VERBOSE)
 
 
-
+comment = namedtuple('comment', ['start', 'end'])
 
 
 def insert(str1, str2, pos):
@@ -104,17 +104,17 @@ def in_comment(i, comment_list):
 		return -1, -1
 		
 	j = 0
+	k = 0
 	while j < len(comment_list):
 		if i > comment_list[j].start:
+			k += 1
 			if i < comment_list[j].end:
-				return j, j+1
-		else:
-			return -1, j+1
+				return j, k
 
 		j += 1
 
 	
-	return -1, -1  #should never get here
+	return -1, k
 
 
 
@@ -266,8 +266,6 @@ def fix_do(match, file_string, comment_list):
 
 
 
-
-#doesn't work 
 def fix_switch(match, file_string, comment_list):
 	m_start = match.start(1)
 	m_end = match.end(1)
@@ -405,11 +403,10 @@ def fix_while(match, file_string, comment_list):
 
 
 	
-comment = namedtuple('comment', ['start', 'end'])
 
 #returns a list of tuples of comment and string literal start and end, ie s[start:end] is the comment
 def find_non_code(s, start=0):
-	comment_list = [] #list of tuples (index, comment text)
+	comment_list = [] #list of tuples (start, end)
 	
 	i = start
 	while True:
@@ -433,12 +430,10 @@ def find_non_code(s, start=0):
 		end = 0
 		if c_comment < cpp_comment and c_comment < str_literal:
 			end = s.find('*/', c_comment) + 2
-			#print(len(comment_list), '\t', c_comment, '\t', end)
 			comment_list.append(comment(c_comment, end))
 			i = end
 		elif cpp_comment < str_literal:
 			end = s.find('\n', cpp_comment) + 1
-			#print(len(comment_list), '\t', cpp_comment, '\t', end)
 			comment_list.append(comment(cpp_comment, end))
 			i = end
 		else:      #str_liteal is first/least
@@ -458,7 +453,6 @@ def find_non_code(s, start=0):
 				tmp += 1
 				
 			end += 1
-			#print(len(comment_list), '\t', str_literal, '\t', end)
 			comment_list.append(comment(str_literal, end))
 			i = end
 	
@@ -467,22 +461,24 @@ def find_non_code(s, start=0):
 				sys.exit()
 	
 	
-		#print(s[comment_list[-1].start:comment_list[-1].end]+'\n')
 	return comment_list
 	
 	
 	
 
-def recurse_dir(root, filetypes):                                           # for a root dir
+def recurse_dir(root, filetypes, exclude):                                           # for a root dir
 	files = []
 	for (thisdir, subshere, fileshere) in os.walk(root):    # generate dirs in tree
+		if any(samefile(thisdir, e) for e in exclude):
+			continue
 		for t in filetypes:
-			files.extend(glob.glob(thisdir+'/*'+t))
-		#print('[' + thisdir + ']')
-		#for fname in fileshere:                             # files in this dir
-			#if any(fname.endswith(t) for t in filetypes):
-				#files.append(os.path.join(thisdir, fname))             # add dir name prefix
-				#print(path)
+			tmp = glob.glob(thisdir+'/*'+t)
+			for f in tmp:
+				if any(samefile(f, e) for e in exclude):
+					continue
+
+				files.append(f)
+
 	return files
 
 
@@ -522,6 +518,7 @@ def main():
 	parser.add_argument("-f", "--filetypes", nargs="+", default=[".c", ".cpp"], help="the filetypes to fix in directories (default = ['.c', '.cpp]")
 	parser.add_argument("-r", "--recursive", action="store_true", help="search through given directories recursively")
 	parser.add_argument("-c", "--cautious", action="store_true", help=cautious_help)
+	parser.add_argument("-e", "--exclude", nargs="+", default=[], help="files or directories to exclude ie use -r but want to exclude certain subdir or files)")
 	group = parser.add_mutually_exclusive_group()
 	group.add_argument("-o", "--overwrite", action="store_true", help="overwrite fixed files (Make a backup or use source control!!)")
 	group.add_argument("-s", "--suffix", help=suffix_help)
@@ -542,16 +539,22 @@ def main():
 		for i in args.input:
 			if isdir(i):
 				if args.recursive:
-					file_list += recurse_dir(i, args.filetypes)
+					file_list += recurse_dir(i, args.filetypes, args.exclude)
 				else:
 					for t in args.filetypes:
-						file_list += glob.glob(i+'/*'+t)
+						tmp = glob.glob(i+'/*'+t)
+						for f in tmp:
+							if any(samefile(f, e) for e in args.exclude):
+								continue
+
+							file_list.append(f)
 			else:
-				file_list.append(i)
+				file_list.append(i)    # let's just assume they don't specify the exact same dir or file in -i and -e
+
 
 	print("fixing ",len(file_list), "files")
 	for file_num, f in enumerate(file_list):
-		print("fixing",f,str(file_num),"of",str(len(file_list)))
+		print("fixing",normpath(f),str(file_num+1),"of",str(len(file_list)))
 		if f == sys.stdin:
 			c_file_string = f.read()
 		else:
